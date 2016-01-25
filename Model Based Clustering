@@ -1,0 +1,181 @@
+---
+title: "Cluster Analysis-Model Based Clustering"
+author: "Anbarasan S"
+date: "January 22, 2016"
+output: word_document
+---
+# 1.Load The Data
+
+```{r}
+ # Load the Library      
+    library(mclust)
+    library(ggmap)
+    library(grid)
+    library(gridExtra)
+
+  #load the data
+    geodata <- read.csv("G:/Careem/Data files/GeoData.csv")
+  
+  # get the base Map
+    lat.centre  = median(geodata$Latitude)
+    lon.centre  = median(geodata$Longitude)
+
+    geo.basemap2 <- get_map(location = c(lon.centre,lat.centre),
+                           maptype = "roadmap", 
+                           source="google",
+                           zoom = 11)
+  
+```
+
+# 2.Multiplot Function
+
+```{r}
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  require(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+# 3.Perform Model Based Clustering
+  * Model Based Clustering ,uses the bayesian probabilistic interpretation ,to assign an observation to a cluster.
+  * Hence in a model based clustering , each data point (or) observation belong to more than one cluster ,with a certain probability.And the observation is assigned to cluster with a maximum probabilty.
+  
+## 3.1 Advantages of Model Based Clustering over other Clustering techniques
+  * No need to determine the number of clusters in advance
+  * Very useful in detremining clusters of any shape like oval or s- shaped
+  * Not sensitive to outliers.
+  
+
+```{r}
+    #Apply Mclust
+    geodata.mclust <- Mclust(geodata[,c(1,2)])
+    summary(geodata.mclust)
+    
+    # Visualize the Clusters
+    plot.mclust <- ggmap(geo.basemap2)+
+       geom_point(data = geodata, aes(x = Longitude, y = Latitude), 
+                  color=geodata.mclust$classification, size= 1.5, alpha=0.5)+
+       ggtitle("Model Based clustering of Booking Locations-Pointwise")
+    
+    plot.mclust
+   
+```
+## 3.2 Inference From Clustering:
+* Model Based Clustering gives more meaningful clusters than DBSCAN or K-Means as can be seen from the visualization of the three Clusters
+
+```{r}
+    multiplot(plot.kmeans,plot.dbscan,plot.mclust)
+
+```
+
+# 4.Hourly Evolution of clusters
+* To Understand how the clusters evolve over time ,we group the booking time into four categories -     + Midnight(12 AM -6 AM)
+  + Morning(6 AM - 10 AM)
+  + Noon(10 AM -4 PM)
+  + Evening(4 PM- 6 PM)
+
+```{r}
+    
+    ## Create a feature Hours
+    GroupByHours <- function(df){
+                      TimeFormat = "%I:%M:%S %p"
+                      lt_time = strptime(df,TimeFormat)
+                      return (lt_time$hour)
+    }
+          
+    geodata$Hours <- sapply(geodata$booking_time,GroupByHours)
+    geodata <- geodata[order(geodata$Hours),]
+    
+    ## Hourly Evolution of model based clusters
+    ## Group the data based on Hours
+    
+    geodata_midnight <- subset(geodata, Hours>=0 & Hours <6)
+    geodata_morning <- subset(geodata, Hours>=6 & Hours <11)
+    geodata_noon <- subset(geodata, Hours>=11 & Hours <16)
+    geodata_evening <- subset(geodata, Hours>=16 & Hours <=18)
+    
+    # Perform Model Based clustering during midnight hours
+    
+    geodata.mclust.midnight <- Mclust(geodata_midnight[,c(1,2)])
+    summary(geodata.mclust.midnight)
+    
+    midnight <- ggmap(geo.basemap2)+
+       geom_point(data = geodata_midnight, aes(x = Longitude, y = Latitude), 
+                  color=geodata.mclust.midnight$classification, size= 1.5, alpha=0.5)+
+       ggtitle("Midnight Bookings")
+    
+    # Perform Model Based clustering during morning hours
+    
+    geodata.mclust.morning <- Mclust(geodata_morning[,c(1,2)])
+    summary(geodata.mclust.morning)
+    
+    morning <- ggmap(geo.basemap2)+
+       geom_point(data = geodata_morning, aes(x = Longitude, y = Latitude), 
+                  color=geodata.mclust.morning$classification, size= 1.5, alpha=0.5)+
+       ggtitle("Morning Bookings")
+    
+    # Perform Model Based clustering during afternoon hours
+    
+    geodata.mclust.noon <- Mclust(geodata_noon[,c(1,2)])
+    summary(geodata.mclust.noon)
+    
+    noon <- ggmap(geo.basemap2)+
+       geom_point(data = geodata_noon, aes(x = Longitude, y = Latitude), 
+                  color=geodata.mclust.noon$classification, size= 1.5, alpha=0.5)+
+       ggtitle("Noon Bookings")
+    
+   # Perform Model Based clustering during evening hours
+    
+    geodata.mclust.evening <- Mclust(geodata_evening[,c(1,2)])
+    summary(geodata.mclust.evening)
+    
+    evening <- ggmap(geo.basemap2)+
+       geom_point(data = geodata_evening, aes(x = Longitude, y = Latitude), 
+                  color=geodata.mclust.evening$classification, size= 1.5, alpha=0.5)+
+       ggtitle("Evening bookings")
+    
+    # Multi Plot
+      multiplot(midnight, morning, noon, evening,cols=2)
+   
+    
+
+```
+
+# 4.1 Inference from timely evolution of clusters
+* The Clusters are more dense during the Noon or mid-day period from 10 am - 4 pm , where the clusters are dense.The Possible reason for this dense clusters during day time may be due to office going population.  
+* More bookings are from the cairo region followed all hay illamin region, over all periods of the day
+* Midnight Cluster suggests that majority booking is from cairo region, with few interspersed bookings here and there.
+* The clusters are found around  the Ring Road area 
+
+
