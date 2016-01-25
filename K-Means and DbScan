@@ -1,0 +1,222 @@
+---
+title: "ClusterAnalysis-GeoData"
+author: "Anbarasan S"
+date: "January 23, 2016"
+output: word_document
+---
+---
+title: "GeoData"
+author: "Anbarasan S"
+date: "January 12, 2016"
+output: word_document
+---
+
+# 4.1.Load The Data
+```{r}
+    geodata = read.csv("G:/Careem/Data files/GeoData.csv")
+    head(geodata,10)
+    str(geodata)
+    
+  # Check For any missing data
+    sum(is.na(geodata))
+ 
+```
+
+# 4.3 Project the Spatial data on to a map
+
+* R provides a number of useful packages for dealing with maps and spatial data. 
+* Here ,maps are created using  two useful packages RGoogleMaps & ggmap.
+* The Spatial Data provided ,when projected on to this base maps , help us to reveal some useful information hidden in the data
+
+```{r}
+ # Use RGoogleMaps
+       
+       # Load the library RgoogleMaps
+       
+          library(RgoogleMaps)
+       
+       # Get the Latitude and longitude range
+       
+          lat.range = range(geodata$Latitude)
+          lon.range = range(geodata$Longitude)
+       
+       # Get Maps Based upon the range of longitude and latitude values
+       
+          geo.basemap <- GetMap.bbox(lonR = lon.range, latR = lat.range, 
+                                     destfile = "geo_BaseMap.png", 
+                                     maptype = "roadmap",
+                                     zoom = 11)
+       
+       # Plot The Geo-Data on the Map obtained fro the latitude and Longitude Range
+       
+          PlotOnStaticMap(geo.basemap,
+                          lat = geodata$Latitude, lon = geodata$Longitude, 
+                          zoom = 18, cex = 0.5, pch = 19, col = "red", 
+                          FUN = points, add = F)
+          
+ # Use ggmap
+       # Load the required library
+          
+          library(ggmap)
+          
+          lat.centre  = median(geodata$Latitude)
+          lon.centre  = median(geodata$Longitude)
+
+          geo.basemap2 <- get_map(location = c(lon.centre,lat.centre),
+                           maptype = "roadmap", 
+                           source="google",
+                           zoom = 11)
+          
+          
+          ggmap(geo.basemap2) +
+             geom_point(data = geodata, aes(x = Longitude, y = Latitude), color="red", size= 1.5, alpha=0.5)
+          
+          ggmap(geo.basemap2)+
+                stat_density2d(aes(x = Longitude, y = Latitude, fill = ..level.., alpha = ..level..),
+                                size = 2, data = geodata, geom = "polygon")
+          
+          
+```
+
+# 4.4 Clustering using K-Means Algorithm
+* K-Means algorithm groups clusters using partitioning approach.
+* There are 2 factors that determine the quality of k-means clustering 
+  + Initial choice of centroids
+  + The number of clusters present in the data should be known before performing the clustering operation
+
+## 4.4.1. Computing the Distance matrix
+* There are different approaches for calculating the distance between two data points, like
+  + Hamming Distance
+  + Euclidean Distance
+  + Manhattan or City Block Distance
+* However,using Euclidean distance as a measure does not give the actual distance measure for spatial data involving latitude and longitude. 
+* Haversian Distance Measure ,provided in the "geosphere" package was used to calculate meaningful distance between spatial points , taking into account the spherical/elliptical shape of earth.
+
+```{r}
+          ## Compute the distance matrix using Geosphere package
+          ## Function to Haversian Distance 
+          
+          geo.dist  <- function(df) {
+                      require(geosphere)
+                      d <- function(i,z){         # z[1:2] contain long, lat
+                        dist <- rep(0,nrow(z))
+                        dist[i:nrow(z)] <- distHaversine(z[i:nrow(z),1:2],z[i,1:2])
+                        return(dist)
+                      }
+                      dm <- do.call(cbind,lapply(1:nrow(df),d,df))
+                      return(as.dist(dm))
+          }
+
+          distance.matrix <- geo.dist(geodata[,c(1,2)]) 
+
+```
+
+
+## 4.4.2 Determining the optimal number of clusters for K-means
+* Sign of a good cluster is to have high inter-Cluster similarity and low intra-cluster similarity.
+* "within Sum of Squares"-WSS, is a measure to find the coherence inside a cluster . WSS is the sum of Squared distance between centroid and every point inside a cluster.So, Once a optimal no of clusters are formed in the data , there is very low decrease in WSS
+* There is a fast drop in WSS values upto 4 clusters ,after which there is only slight decrease in WSS , which suggests that, 8 is th optimal number of clusters .
+
+```{r}
+          ## Determine the no of clusters
+ 
+          wssplot.distancematrix <- function(data, nc=15, seed=1234){
+                                        wss <- rep(0,15)
+                                        for (i in 2:nc){
+                                            set.seed(seed)
+                                            wss[i] <- sum(kmeans(data, centers=i)$withinss)
+                                        }
+                                        plot(1:nc, wss, 
+                                             type="b",
+                                             xlab="Number of Clusters",
+                                             ylab="Within groups sum of squares")
+          }
+ 
+          wssplot.distancematrix(distance.matrix)
+
+```
+
+
+## 4.4.3 Perform K-Means Clustering
+* Perform K-Means Clustering using 4 clusters and 20 sets of random initialization of centroids for the clusters.
+* Visualize the clusters on the map
+
+```{r}
+    ## Perform K-Means Clustering
+          
+          cluster.kmeans.geodata = kmeans(distance.matrix, 8, nstart =20 )
+          summary(cluster.kmeans.geodata)
+          
+          
+    ## visualize k-means clustering
+          
+          cluster.factors = as.factor(cluster.kmeans.geodata$cluster)
+           
+          plot.kmeans <- ggmap(geo.basemap2)+ 
+            geom_point(data = geodata, aes(x = Longitude, y = Latitude), color=cluster.factors, size= 1.5, alpha=0.5)+
+            ggtitle("k-Means cluster of Booking Locations-Pointwise")
+          plot.kmeans
+   
+```
+
+# 4.5 Density Based Clustering
+* Conventional methods of clustering like k-means and hierarchical, constructs clusters  of spherical shape and even include some outliers in the process to some nearest cluster.
+* But Density Based clustering is useful in finding non-linear clusters like s- shaped or oval or any other non-linear shape .
+* DBSCAN- Density Based Spatial Clustering of Applications with Noise , performs good clustering even in the presence of outliers 
+* knnDistPlot is used to find the epsilon for forming clusters and it is around 0.015
+
+
+```{r}
+  library(dbscan)
+  library(cluster)
+  
+          kNNdistplot(geodata[,c(1,2)], k = 3)
+          abline(h=0.01, col="red")
+          
+          db <- dbscan(geodata[,c(1,2)], eps=0.02, minPts=45)
+          db
+          
+          
+          cluster.factors.db = as.factor(db$cluster)
+          ## DBSCAN Visualization
+          plot.dbscan <- ggmap(geo.basemap2)+ 
+            geom_point(data = geodata, aes(x = Longitude, y = Latitude), color=db$cluster+1L, size= 1.5, alpha=0.5)+
+            ggtitle("DBSCAN cluster of Booking Locations-Pointwise")
+          
+          plot.dbscan
+          
+          
+        
+          
+```
+* the plot suggests that DBSCAN clusters are highly cohesive than that of k-means algorithm, since the outliers are not included in any cluster and are shown as black points. Whereas in K-means algorithms ,clusters inlcude the outlier points also . 
+
+
+# 4.6 Timely Evolution of Bookings (Hourly Evolution)
+* Perform feature engineering on the booking time using strptime and group the data based upon the booking time .
+* plot density plots of the observations for every hour
+
+```{r}
+          GroupByHours <- function(df){
+                      TimeFormat = "%I:%M:%S %p"
+                      lt_time = strptime(df,TimeFormat)
+                      return (lt_time$hour)
+    }
+          
+    geodata$Hours <- sapply(geodata$booking_time,GroupByHours)
+    geodata <- geodata[order(geodata$Hours),]
+    
+  
+    
+    geo.basemap3 <- ggmap(geo.basemap2)
+    geo.basemap3 +
+      stat_density2d(aes(x = Longitude, y = Latitude,fill = ..level..,alpha = ..level..),
+                      geom = "polygon", data = geodata) +
+      facet_wrap( ~ Hours) +
+      theme(strip.text.x = element_text(size=12, face="bold"),
+            strip.background = element_rect(colour="red", fill="#CCCCFF"))+
+      ggtitle("Hourly Density estimation of Points in 24 hr Format")
+    
+```
+* The Evolution of density plots suggest that ,the bookings are more diversely distributed during the day time from 8 am to 5 pm.
+* during midnight hours the density distribution is very scarce and restricted to few hotspots alone
